@@ -18,6 +18,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
   - Bundle.identifier uses urn:ietf:rfc:3986 + urn:uuid:<uuid>
   - All XHTML narratives include lang & xml:lang to avoid validator warnings
   - UI is Bootstrap-based (cards + rows) consistent with your previous forms
+  git fixing
 */
 
 /* ----------------------------- GLOBAL DATA ------------------------------ */
