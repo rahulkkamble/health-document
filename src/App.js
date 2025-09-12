@@ -1,5 +1,6 @@
 // src/App.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import "bootstrap/dist/css/bootstrap.min.css";
 
 /*
@@ -121,8 +122,8 @@ function normalizeAbhaAddresses(patientObj) {
     patientObj?.additional_attributes?.abha_addresses && Array.isArray(patientObj.additional_attributes.abha_addresses)
       ? patientObj.additional_attributes.abha_addresses
       : Array.isArray(patientObj?.abha_addresses)
-      ? patientObj.abha_addresses
-      : [];
+        ? patientObj.abha_addresses
+        : [];
 
   const out = raw
     .map(item => {
@@ -155,7 +156,7 @@ export default function App() {
   const [selectedAbha, setSelectedAbha] = useState("");
 
   /* Practitioner (global; no API fetch) */
-  const [selectedPractitionerIdx, setSelectedPractitionerIdx] = useState(0);
+  // const [selectedPractitionerIdx, setSelectedPractitionerIdx] = useState(0);
 
   /* Composition fields */
   const [status, setStatus] = useState("final"); // preliminary | final | amended | entered-in-error
@@ -246,10 +247,6 @@ export default function App() {
       alert("Status is required.");
       return;
     }
-    if (selectedPractitionerIdx == null) {
-      alert("Select a practitioner (author).");
-      return;
-    }
 
     const authoredOn = localDatetimeToISOWithOffset(dateTimeLocal);
 
@@ -296,22 +293,47 @@ export default function App() {
     }
 
     // Build Practitioner resource (global list)
-    function buildPractitionerResource() {
-      const p = PRACTITIONERS[selectedPractitionerIdx] || PRACTITIONERS[0];
+    // function buildPractitionerResource() {
+    function buildPractitionerResource(practitionerReferenceId) {
+      const globalPractitioner = window.GlobalPractitioner;
+
+      const p = globalPractitioner || {
+        id: "fake-practitioner-id",
+        meta: {
+          versionId: "1",
+          lastUpdated: new Date().toISOString(),
+          profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"]
+        },
+        text: {
+          status: "generated",
+          div: "<div xmlns='http://www.w3.org/1999/xhtml'><p><b>Generated Narrative: Doctor Info : Fake Doctor</b></p></div>"
+        },
+        identifier: [
+          {
+            type: { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }] },
+            system: "https://doctor.ndhm.gov.in",
+            value: "FAKE-0000-0000"
+          }
+        ],
+        name: [{ text: "Fake Doctor" }]
+      };
+
       return {
         resourceType: "Practitioner",
-        id: practitionerId,
-        language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Practitioner"] },
-        text: buildNarrative("Practitioner", `<p>${p.name}</p><p>${p.qualification}</p>`),
-        identifier: p.registration?.system && p.registration?.value ? [{ system: p.registration.system, value: p.registration.value }] : undefined,
-        name: [{ text: p.name }],
-        telecom: [
-          p.phone ? { system: "phone", value: p.phone } : null,
-          p.email ? { system: "email", value: p.email } : null,
-        ].filter(Boolean),
+        id: practitionerReferenceId || uuidv4(),  // use global ID if present globalPractitioner?.id replaced here
+        meta: globalPractitioner?.meta || { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+        text: globalPractitioner?.text || { status: "generated", div: "<div xmlns='http://www.w3.org/1999/xhtml'><p><b>Generated Narrative: Doctor Info : Fake Doctor</b></p></div>" },
+        identifier: globalPractitioner?.identifier || [
+          {
+            type: { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }] },
+            system: "https://doctor.ndhm.gov.in",
+            value: "FAKE-0000-0000"
+          }
+        ],
+        name: globalPractitioner?.name || [{ text: "Fake Doctor" }],
       };
     }
+
 
     // Optional Organization resources (custodian / attesterOrg)
     function buildOrganizationResource(orgId, orgName) {
@@ -411,7 +433,7 @@ export default function App() {
       // attester structure if provided (optional)
       if (attesterPartyType === "Practitioner") {
         // refer to same practitioner resource
-        attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${practitionerId}` } });
+        attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${practitionerReferenceId}` } });
       } else if (attesterPartyType === "Organization" && attesterOrgId) {
         attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${attesterOrgId}` } });
       }
@@ -421,14 +443,18 @@ export default function App() {
         id: compId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Composition"] },
-        text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${PRACTITIONERS[selectedPractitionerIdx]?.name || ""}</p>`),
+        text: buildNarrative(
+          "Composition",
+          `<p>${title}</p><p>Author: ${window.GlobalPractitioner?.name?.[0]?.text || "Fake Doctor"}</p>`
+        ),
+
         status: status,
         type: { coding: [COMPOSITION_DOC_TYPE], text: "Record artifact" }, // fixed per mapping
         subject: { reference: `urn:uuid:${patientId}` },
         // encounter optional
-        ...(encounterId ? { encounter: { reference: `urn:uuid:${encounterId}` } } : {}),
+        ...(encounterReference ? { encounter: { reference: encounterReference } } : {}),
         date: authoredOn,
-        author: [{ reference: `urn:uuid:${practitionerId}`, display: PRACTITIONERS[selectedPractitionerIdx]?.name }],
+        author: [{ reference: `urn:uuid:${practitionerReferenceId}`, display: window.GlobalPractitioner?.name?.[0]?.text || "Fake Doctor" }],
         title: title,
         ...(attesterArr.length ? { attester: attesterArr } : {}),
         ...(custodianOrgId ? { custodian: { reference: `urn:uuid:${custodianOrgId}` } } : {}),
@@ -447,8 +473,24 @@ export default function App() {
 
     // Build the resources
     const patientRes = buildPatientResource();
-    const practitionerRes = buildPractitionerResource();
-    const encounterRes = buildEncounterResource();
+    // const practitionerRes = buildPractitionerResource(); old rractiner replaced with 2 lines below
+    const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
+    const practitionerRes = buildPractitionerResource(practitionerReferenceId);
+    // const encounterRes = buildEncounterResource();
+    const encounterReference = encounterRefText ? `urn:uuid:${encounterId}` : undefined;
+    const encounterRes = encounterId
+      ? {
+        resourceType: "Encounter",
+        id: encounterId,
+        language: "en-IN",
+        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Encounter"] },
+        text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
+        status: "finished",
+        class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "AMB", display: "ambulatory" },
+        subject: { reference: `urn:uuid:${patientId}` },
+        period: { start: isoWithLocalOffsetFromDate(new Date()), end: isoWithLocalOffsetFromDate(new Date()) },
+      }
+      : null;
     const custodianRes = custodianOrgId ? buildOrganizationResource(custodianOrgId, custodianName) : null;
     const attesterOrgRes = attesterOrgId ? buildOrganizationResource(attesterOrgId, attesterOrgName) : null;
 
@@ -485,9 +527,22 @@ export default function App() {
     });
 
     // Set output
-    setJsonOut(JSON.stringify(bundle, null, 2));
-    console.log("Generated Health Document Bundle:", bundle);
-    alert("Bundle generated and logged to console. Paste JSON into your validator.");
+    // setJsonOut(JSON.stringify(bundle, null, 2));
+    // console.log("Generated Health Document Bundle:", bundle);
+    // alert("Bundle generated and logged to console. Paste JSON into your validator.");
+    console.log(selectedPatient.id)
+    axios.post('https://uat.discharge.org.in/api/v5/fhir-bundle', { bundle, patient: selectedPatient.id })
+      .then(response => {
+        console.log('FHIR Bundle Submitted:', response.data);
+        alert("FHIR Bundle Submitted Successfully");
+      })
+      .catch(error => {
+        console.error('Error submitting FHIR Bundle:', error.response?.data || error.message);
+        alert("Error submitting FHIR Bundle. See console.");
+      });
+
+    setJsonOut(JSON.stringify(bundle, null, 2));  // Keep showing output in UI
+
   }
 
   /* ------------------------------- RENDER UI -------------------------------- */
@@ -551,15 +606,14 @@ export default function App() {
         <div className="card-body">
           <div className="row g-3">
             <div className="col-md-6">
-              <label className="form-label">Select Practitioner</label>
-              <select className="form-select" value={selectedPractitionerIdx} onChange={e => setSelectedPractitionerIdx(Number(e.target.value))}>
-                {PRACTITIONERS.map((p, i) => <option key={p.id} value={i}>{p.name} ({p.qualification})</option>)}
-              </select>
-            </div>
-            <div className="col-md-6">
               <label className="form-label">Practitioner (read-only)</label>
-              <input className="form-control" readOnly value={PRACTITIONERS[selectedPractitionerIdx]?.name || ""} />
+              <input
+                className="form-control"
+                readOnly
+                value={window.GlobalPractitioner?.name?.[0]?.text || "Fake Doctor"}
+              />
             </div>
+
           </div>
         </div>
       </div>
@@ -633,10 +687,12 @@ export default function App() {
             )}
             {attesterPartyType === "Practitioner" && (
               <div className="col-md-6">
-                <label className="form-label">Attester Practitioner</label>
-                <select className="form-select" value={selectedPractitionerIdx} onChange={e => setSelectedPractitionerIdx(Number(e.target.value))}>
-                  {PRACTITIONERS.map((p, i) => <option key={p.id} value={i}>{p.name}</option>)}
-                </select>
+                <label className="form-label">Attester Practitioner (read-only)</label>
+                <input
+                  className="form-control"
+                  readOnly
+                  value={window.GlobalPractitioner?.name?.[0]?.text || "Fake Doctor"}
+                />
               </div>
             )}
           </div>
