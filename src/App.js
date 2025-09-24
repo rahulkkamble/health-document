@@ -21,13 +21,6 @@ import "bootstrap/dist/css/bootstrap.min.css";
   - UI is Bootstrap-based (cards + rows) consistent with your previous forms
 */
 
-/* ----------------------------- GLOBAL DATA ------------------------------ */
-/* Practitioners come from a global variable (no network call) */
-const PRACTITIONERS = [
-  { id: "prac-1", name: "Dr. A. Verma", qualification: "MBBS, MD", phone: "+919000011111", email: "verma@example.org", registration: { system: "https://nmc.org.in", value: "NMC-123" } },
-  { id: "prac-2", name: "Dr. B. Rao", qualification: "MBBS, MS", phone: "+919000022222", email: "rao@example.org", registration: { system: "https://nmc.org.in", value: "NMC-456" } },
-];
-
 /* ------------------------------- HELPERS -------------------------------- */
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
@@ -180,7 +173,7 @@ export default function App() {
   const [fileNamesPreview, setFileNamesPreview] = useState([]);
 
   /* Output JSON */
-  const [jsonOut, setJsonOut] = useState("");
+  // const [jsonOut, setJsonOut] = useState("");
 
   /* Load patients on mount */
   useEffect(() => {
@@ -250,7 +243,7 @@ export default function App() {
     // Generate ids for resources
     const compId = uuidv4();
     const patientId = uuidv4();
-    const practitionerId = uuidv4();
+    // const practitionerId = uuidv4();
     const encounterId = encounterRefText ? uuidv4() : null;
     const custodianOrgId = custodianName ? uuidv4() : null;
     const attesterOrgId = attesterPartyType === "Organization" && attesterOrgName ? uuidv4() : null;
@@ -289,30 +282,30 @@ export default function App() {
     }
 
     // Build Practitioner resource (global)
-    function buildPractitionerResource(practitionerReferenceId) {
-      const globalPractitioner = window.GlobalPractitioner;
+    // function buildPractitionerResource(practitionerReferenceId) {
+    //   const globalPractitioner = window.GlobalPractitioner;
 
-      const fallback = {
-        id: "dummy-practitioner-id",
-        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
-        text: { status: "generated", div: "<div xmlns='http://www.w3.org/1999/xhtml'><p><b>Generated Narrative: Doctor Info : Dr. ABC</b></p></div>" },
-        identifier: [
-          { type: { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }] }, system: "https://doctor.ndhm.gov.in", value: "LC-0000-0000" }
-        ],
-        name: [{ text: "Dr. ABC" }]
-      };
+    //   const fallback = {
+    //     id: "dummy-practitioner-id",
+    //     meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+    //     text: { status: "generated", div: "<div xmlns='http://www.w3.org/1999/xhtml'><p><b>Generated Narrative: Doctor Info : Dr. ABC</b></p></div>" },
+    //     identifier: [
+    //       { type: { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }] }, system: "https://doctor.ndhm.gov.in", value: "LC-0000-0000" }
+    //     ],
+    //     name: [{ text: "Dr. ABC" }]
+    //   };
 
-      const src = globalPractitioner || fallback;
+    //   const src = globalPractitioner || fallback;
 
-      return {
-        resourceType: "Practitioner",
-        id: practitionerReferenceId || uuidv4(),
-        meta: src.meta,
-        text: src.text,
-        identifier: src.identifier,
-        name: src.name,
-      };
-    }
+    //   return {
+    //     resourceType: "Practitioner",
+    //     id: practitionerReferenceId || uuidv4(),
+    //     meta: src.meta,
+    //     text: src.text,
+    //     identifier: src.identifier,
+    //     name: src.name,
+    //   };
+    // }
 
     // Optional Organization resources
     function buildOrganizationResource(orgId, orgName) {
@@ -398,7 +391,7 @@ export default function App() {
       const attesterArr = [];
 
       if (attesterPartyType === "Practitioner") {
-        attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${practitionerReferenceId}` } });
+        attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${practitionerRes.id}` } });
       } else if (attesterPartyType === "Organization" && attesterOrgId) {
         attesterArr.push({ mode: attesterMode, party: { reference: `urn:uuid:${attesterOrgId}` } });
       }
@@ -408,7 +401,7 @@ export default function App() {
         id: compId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Composition"] },
-        text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${window.GlobalPractitioner?.name?.[0]?.text || "Dr. ABC"}</p>`),
+        text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${practitionerName}</p>`),
 
         status: status,
         type: { coding: [COMPOSITION_DOC_TYPE], text: COMPOSITION_DOC_TYPE.display },
@@ -418,7 +411,7 @@ export default function App() {
         author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerName }],
         attester: [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }],
         title: title,
-        ...(attesterArr.length ? { attester: attesterArr } : {}),
+        attester: (attesterArr.length ? attesterArr : [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }]),
         ...(custodianOrgId ? { custodian: { reference: `urn:uuid:${custodianOrgId}` } } : {}),
         section: [
           {
@@ -434,7 +427,7 @@ export default function App() {
 
     // Build the resources
     const patientRes = buildPatientResource();
-    const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
+    // const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
 
     const practitionerRes = {
       resourceType: "Practitioner",
@@ -505,14 +498,16 @@ export default function App() {
     axios.post('https://uat.discharge.org.in/api/v5/fhir-bundle', { bundle, patient: selectedPatient.id })
       .then(response => {
         console.log('FHIR Bundle Submitted:', response.data);
+        console.log(JSON.stringify(bundle, null, 2))
         alert("FHIR Bundle Submitted Successfully");
       })
       .catch(error => {
         console.error('Error submitting FHIR Bundle:', error.response?.data || error.message);
         alert("Error submitting FHIR Bundle. See console.");
+        console.log(JSON.stringify(bundle, null, 2))
       });
 
-    setJsonOut(JSON.stringify(bundle, null, 2));
+    // setJsonOut(JSON.stringify(bundle, null, 2));
   }
 
   /* ------------------------------- RENDER UI -------------------------------- */
@@ -661,7 +656,7 @@ export default function App() {
                 <input
                   className="form-control"
                   readOnly
-                  value={window.GlobalPractitioner?.name?.[0]?.text || "Dr. ABC"}
+                  value={practitionerName}
                 />
               </div>
             )}
@@ -694,17 +689,9 @@ export default function App() {
 
       {/* Actions */}
       <div className="mb-4">
-        <button className="btn btn-primary" onClick={onBuildBundle}>Generate Health Document Bundle & Log</button>
+        <button className="btn btn-primary" onClick={onBuildBundle}>Submit</button>
       </div>
 
-      {/* Output */}
-      <div className="card mb-5">
-        <div className="card-header">Output JSON (Bundle)</div>
-        <div className="card-body">
-          <textarea className="form-control" rows={16} value={jsonOut} onChange={e => setJsonOut(e.target.value)} />
-          <small className="text-muted">Copy the JSON and validate with your FHIR validator (Inferno / other).</small>
-        </div>
-      </div>
     </div>
   );
 }
