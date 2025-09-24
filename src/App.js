@@ -140,6 +140,12 @@ function normalizeAbhaAddresses(patientObj) {
   return out;
 }
 
+// --- Global Practitioner (available everywhere) ---
+const gp = typeof window !== "undefined" ? window.GlobalPractitioner : null;
+const practitionerId = gp?.id || uuidv4();
+const practitionerName = (Array.isArray(gp?.name) && gp.name[0]?.text) || "Dr. ABC";
+const practitionerLicense = (Array.isArray(gp?.identifier) && gp.identifier[0]?.value) || "LIC-0000";
+
 /* ------------------------------- APP ------------------------------------- */
 
 export default function App() {
@@ -409,7 +415,8 @@ export default function App() {
         subject: { reference: `urn:uuid:${patientId}` },
         ...(encounterReference ? { encounter: { reference: encounterReference } } : {}),
         date: authoredOn,
-        author: [{ reference: `urn:uuid:${practitionerReferenceId}`, display: window.GlobalPractitioner?.name?.[0]?.text || "Dr. ABC" }],
+        author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerName }],
+        attester: [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }],
         title: title,
         ...(attesterArr.length ? { attester: attesterArr } : {}),
         ...(custodianOrgId ? { custodian: { reference: `urn:uuid:${custodianOrgId}` } } : {}),
@@ -428,7 +435,25 @@ export default function App() {
     // Build the resources
     const patientRes = buildPatientResource();
     const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
-    const practitionerRes = buildPractitionerResource(practitionerReferenceId);
+
+    const practitionerRes = {
+      resourceType: "Practitioner",
+      id: gp?.id || practitionerId,
+      meta: gp?.meta || { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+      text: gp?.text || buildNarrative("Practitioner", `<p>${practitionerName}</p>`),
+      identifier: gp?.identifier || [
+        {
+          type: {
+            coding: [
+              { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }
+            ]
+          },
+          system: "https://doctor.ndhm.gov.in",
+          value: practitionerLicense
+        }
+      ],
+      name: gp?.name || [{ text: practitionerName }]
+    };
     const encounterReference = encounterRefText ? `urn:uuid:${encounterId}` : undefined;
     const encounterRes = encounterId
       ? {
@@ -549,18 +574,19 @@ export default function App() {
       <div className="card mb-3">
         <div className="card-header">2. Author / Practitioner <span className="text-danger">*</span></div>
         <div className="card-body">
-          <div className="row g-3">
+          <div className="row g-2">
             <div className="col-md-6">
-              <label className="form-label">Practitioner (read-only)</label>
-              <input
-                className="form-control"
-                readOnly
-                value={window.GlobalPractitioner?.name?.[0]?.text || "Dr. ABC"}
-              />
+              <label className="form-label">Name</label>
+              <input className="form-control" readOnly value={practitionerName} />
+            </div>
+            <div className="col-md-6">
+              <label className="form-label">License</label>
+              <input className="form-control" readOnly value={practitionerLicense} />
             </div>
           </div>
         </div>
       </div>
+
 
       {/* 3. Composition metadata */}
       <div className="card mb-3">
