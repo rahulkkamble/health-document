@@ -134,16 +134,18 @@ function normalizeAbhaAddresses(patientObj) {
 }
 
 // --- Global Practitioner (available everywhere) ---
-const gp = typeof window !== "undefined" ? window.GlobalPractitioner : null;
-const practitionerId = gp?.id || uuidv4();
-const practitionerName = (Array.isArray(gp?.name) && gp.name[0]?.text) || "Dr. ABC";
-const practitionerLicense = (Array.isArray(gp?.identifier) && gp.identifier[0]?.value) || "LIC-0000";
+// const gp = typeof window !== "undefined" ? window.GlobalPractitioner : null;
+// const practitionerId = gp?.id || uuidv4();
+// const practitionerName = (Array.isArray(gp?.name) && gp.name[0]?.text) || "Dr. ABC";
+// const practitionerLicense = (Array.isArray(gp?.identifier) && gp.identifier[0]?.value) || "LIC-0000";
+
 
 /* ------------------------------- APP ------------------------------------- */
 
 export default function App() {
   /* Patients (from /patients.json) */
   const [patients, setPatients] = useState([]);
+  const [practitioner, setPractitioner] = useState(null);
   const [selectedPatientIdx, setSelectedPatientIdx] = useState(-1);
   const selectedPatient = useMemo(() => (selectedPatientIdx >= 0 ? patients[selectedPatientIdx] : null), [patients, selectedPatientIdx]);
 
@@ -176,36 +178,103 @@ export default function App() {
   // const [jsonOut, setJsonOut] = useState("");
 
   /* Load patients on mount */
+  // useEffect(() => {
+  //   (async () => {
+  //     try {
+  //       const res = await fetch("/patients.json");
+  //       const data = await res.json();
+  //       const arr = Array.isArray(data) ? data : [];
+  //       setPatients(arr);
+  //       if (arr.length > 0) {
+  //         setSelectedPatientIdx(0);
+  //         const norm = normalizeAbhaAddresses(arr[0]);
+  //         setAbhaOptions(norm);
+  //         setSelectedAbha(norm.length ? norm[0].value : "");
+  //       }
+  //     } catch (e) {
+  //       console.error("Failed loading /patients.json", e);
+  //     }
+  //   })();
+  // }, []);
+
+  // /* When selected patient changes, update ABHA options */
+  // useEffect(() => {
+  //   if (!selectedPatient) {
+  //     setAbhaOptions([]);
+  //     setSelectedAbha("");
+  //     return;
+  //   }
+  //   const norm = normalizeAbhaAddresses(selectedPatient);
+  //   setAbhaOptions(norm);
+  //   setSelectedAbha(norm.length ? norm[0].value : "");
+  // }, [selectedPatientIdx]); // eslint-disable-line
+
+  // fetching practitioner data 
+  useEffect(() => {
+    if (window.GlobalPractitioner) {
+      setPractitioner(window.GlobalPractitioner);
+    } else {
+      // fallback if not defined
+      setPractitioner({
+        id: uuidv4(),
+        resourceType: "Practitioner",
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+        identifier: [
+          {
+            type: {
+              coding: [
+                { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }
+              ]
+            },
+            system: "https://doctor.ndhm.gov.in",
+            value: "LIC-0000"
+          }
+        ],
+        name: [{ text: "Dr. ABC" }]
+      });
+    }
+  }, []);
+  /* Load patients on mount: API first, fallback to local */
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/patients.json");
-        const data = await res.json();
-        const arr = Array.isArray(data) ? data : [];
-        setPatients(arr);
-        if (arr.length > 0) {
-          setSelectedPatientIdx(0);
-          const norm = normalizeAbhaAddresses(arr[0]);
-          setAbhaOptions(norm);
-          setSelectedAbha(norm.length ? norm[0].value : "");
+        // 🔹 Try API first
+        const apiRes = await fetch(window.GlobalPatientAPI || "/api/v5/patients", {
+          headers: {
+            "Content-Type": "application/json",
+            ...(window.GlobalAuthToken ? { "Authorization": `Bearer ${window.GlobalAuthToken}` } : {})
+          }
+        });
+        if (!apiRes.ok) throw new Error("API fetch failed");
+        const apiData = await apiRes.json();
+        if (!Array.isArray(apiData) || apiData.length === 0) throw new Error("API returned empty");
+
+        setPatients(apiData);
+        setSelectedPatientIdx(0);
+        const first = apiData[0];
+        const norm = normalizeAbhaAddresses(first);
+        setAbhaOptions(norm);
+        setSelectedAbha(norm.length ? norm[0].value : "");
+      } catch (apiErr) {
+        // alert("⚠️ Patient not found in API. Falling back to local patients.json.");
+        console.warn("API fetch failed, falling back to local patients.json", apiErr);
+        try {
+          const localRes = await fetch("/patients.json");
+          const localData = await localRes.json();
+          const arr = Array.isArray(localData) ? localData : [];
+          setPatients(arr);
+          if (arr.length > 0) {
+            setSelectedPatientIdx(0);
+            const norm = normalizeAbhaAddresses(arr[0]);
+            setAbhaOptions(norm);
+            setSelectedAbha(norm.length ? norm[0].value : "");
+          }
+        } catch (localErr) {
+          console.error("Failed to fetch local patients.json:", localErr);
         }
-      } catch (e) {
-        console.error("Failed loading /patients.json", e);
       }
     })();
   }, []);
-
-  /* When selected patient changes, update ABHA options */
-  useEffect(() => {
-    if (!selectedPatient) {
-      setAbhaOptions([]);
-      setSelectedAbha("");
-      return;
-    }
-    const norm = normalizeAbhaAddresses(selectedPatient);
-    setAbhaOptions(norm);
-    setSelectedAbha(norm.length ? norm[0].value : "");
-  }, [selectedPatientIdx]); // eslint-disable-line
 
   /* Handle file pick (multiple allowed) */
   function onFilesPicked(e) {
@@ -271,7 +340,7 @@ export default function App() {
         id: patientId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Patient"] },
-        text: buildNarrative("Patient", `<p>${p.name || ""}</p><p>${p.gender || ""} ${p.dob || ""}</p>`),
+        // text: buildNarrative("Patient", `<p>${p.name || ""}</p><p>${p.gender || ""} ${p.dob || ""}</p>`),
         identifier: identifiers,
         name: p.name ? [{ text: p.name }] : undefined,
         gender: p.gender ? String(p.gender).toLowerCase() : undefined,
@@ -315,7 +384,7 @@ export default function App() {
         id: orgId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Organization"] },
-        text: buildNarrative("Organization", `<p>${orgName}</p>`),
+        // text: buildNarrative("Organization", `<p>${orgName}</p>`),
         name: orgName,
       };
     }
@@ -329,7 +398,7 @@ export default function App() {
         id: encounterId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Encounter"] },
-        text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
+        // text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
         status: "finished",
         class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "AMB", display: "ambulatory" },
         subject: { reference: `urn:uuid:${patientId}` },
@@ -370,7 +439,7 @@ export default function App() {
           id: docId,
           language: "en-IN",
           meta: { profile: ["http://hl7.org/fhir/StructureDefinition/DocumentReference"] },
-          text: buildNarrative("DocumentReference", `<p>${title}</p>`),
+          // text: buildNarrative("DocumentReference", `<p>${title}</p>`),
           status: "current",
           type: { coding: [{ system: "http://loinc.org", code: "34108-1", display: "Outpatient Note" }], text: "Outpatient Note" },
           subject: { reference: `urn:uuid:${patientId}` },
@@ -401,15 +470,16 @@ export default function App() {
         id: compId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Composition"] },
-        text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${practitionerName}</p>`),
+        // text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${practitionerName}</p>`),
 
         status: status,
         type: { coding: [COMPOSITION_DOC_TYPE], text: COMPOSITION_DOC_TYPE.display },
         subject: { reference: `urn:uuid:${patientId}` },
         ...(encounterReference ? { encounter: { reference: encounterReference } } : {}),
         date: authoredOn,
-        author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerName }],
+        author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerRes.name?.[0]?.text }],
         attester: [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }],
+
         title: title,
         attester: (attesterArr.length ? attesterArr : [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }]),
         ...(custodianOrgId ? { custodian: { reference: `urn:uuid:${custodianOrgId}` } } : {}),
@@ -429,24 +499,29 @@ export default function App() {
     const patientRes = buildPatientResource();
     // const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
 
-    const practitionerRes = {
-      resourceType: "Practitioner",
-      id: gp?.id || practitionerId,
-      meta: gp?.meta || { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
-      text: gp?.text || buildNarrative("Practitioner", `<p>${practitionerName}</p>`),
-      identifier: gp?.identifier || [
-        {
-          type: {
-            coding: [
-              { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }
-            ]
-          },
-          system: "https://doctor.ndhm.gov.in",
-          value: practitionerLicense
-        }
-      ],
-      name: gp?.name || [{ text: practitionerName }]
+    // const practitionerRes = {
+    //   resourceType: "Practitioner",
+    //   id: gp?.id || practitionerId,
+    //   meta: gp?.meta || { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+    //   text: gp?.text || buildNarrative("Practitioner", `<p>${practitionerName}</p>`),
+    //   identifier: gp?.identifier || [
+    //     {
+    //       type: {
+    //         coding: [
+    //           { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }
+    //         ]
+    //       },
+    //       system: "https://doctor.ndhm.gov.in",
+    //       value: practitionerLicense
+    //     }
+    //   ],
+    //   name: gp?.name || [{ text: practitionerName }]
+    // };
+    const practitionerRes = practitioner && {
+      ...practitioner,
+      id: practitioner.id || uuidv4(), // ensure UUID
     };
+
     const encounterReference = encounterRefText ? `urn:uuid:${encounterId}` : undefined;
     const encounterRes = encounterId
       ? {
@@ -454,7 +529,7 @@ export default function App() {
         id: encounterId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Encounter"] },
-        text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
+        // text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
         status: "finished",
         class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "AMB", display: "ambulatory" },
         subject: { reference: `urn:uuid:${patientId}` },
@@ -495,16 +570,17 @@ export default function App() {
     });
 
     console.log(selectedPatient.id);
-    axios.post('https://uat.discharge.org.in/api/v5/fhir-bundle', { bundle, patient: selectedPatient.id })
+    const patientId2 = Number(selectedPatient.user_id);
+    axios.post('https://uat.discharge.org.in/api/v5/fhir-bundle', { bundle, patient: patientId2 })
       .then(response => {
         console.log('FHIR Bundle Submitted:', response.data);
-        console.log(JSON.stringify(bundle, null, 2))
+        console.log({ bundle, patient: patientId2 })
         alert("FHIR Bundle Submitted Successfully");
       })
       .catch(error => {
         console.error('Error submitting FHIR Bundle:', error.response?.data || error.message);
         alert("Error submitting FHIR Bundle. See console.");
-        console.log(JSON.stringify(bundle, null, 2))
+        console.log({ bundle, patient: patientId2 })
       });
 
     // setJsonOut(JSON.stringify(bundle, null, 2));
@@ -572,11 +648,13 @@ export default function App() {
           <div className="row g-2">
             <div className="col-md-6">
               <label className="form-label">Name</label>
-              <input className="form-control" readOnly value={practitionerName} />
+              <input className="form-control" readOnly value={practitioner?.name?.[0]?.text || ""} />
+
             </div>
             <div className="col-md-6">
               <label className="form-label">License</label>
-              <input className="form-control" readOnly value={practitionerLicense} />
+              <input className="form-control" readOnly value={practitioner?.identifier?.[0]?.value || ""} />
+
             </div>
           </div>
         </div>
@@ -656,7 +734,7 @@ export default function App() {
                 <input
                   className="form-control"
                   readOnly
-                  value={practitionerName}
+                  value={practitioner?.name?.[0]?.text || "Practitioner"}
                 />
               </div>
             )}
