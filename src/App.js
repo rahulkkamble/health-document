@@ -134,7 +134,7 @@ function normalizeAbhaAddresses(patientObj) {
 }
 
 // --- Global Practitioner (available everywhere) ---
-// const gp = typeof window !== "undefined" ? window.GlobalPractitioner : null;
+// const gp = typeof window !== "undefined" ? window.GlobalPractioner : null;
 // const practitionerId = gp?.id || uuidv4();
 // const practitionerName = (Array.isArray(gp?.name) && gp.name[0]?.text) || "Dr. ABC";
 // const practitionerLicense = (Array.isArray(gp?.identifier) && gp.identifier[0]?.value) || "LIC-0000";
@@ -211,8 +211,8 @@ export default function App() {
 
   // fetching practitioner data 
   useEffect(() => {
-    if (window.GlobalPractitioner) {
-      setPractitioner(window.GlobalPractitioner);
+    if (window.GlobalPractioner) {
+      setPractitioner(window.GlobalPractioner);
     } else {
       // fallback if not defined
       setPractitioner({
@@ -352,7 +352,7 @@ export default function App() {
 
     // Build Practitioner resource (global)
     // function buildPractitionerResource(practitionerReferenceId) {
-    //   const globalPractitioner = window.GlobalPractitioner;
+    //   const globalPractitioner = window.GlobalPractioner;
 
     //   const fallback = {
     //     id: "dummy-practitioner-id",
@@ -497,7 +497,7 @@ export default function App() {
 
     // Build the resources
     const patientRes = buildPatientResource();
-    // const practitionerReferenceId = window.GlobalPractitioner?.id || practitionerId;
+    // const practitionerReferenceId = window.GlobalPractioner?.id || practitionerId;
 
     // const practitionerRes = {
     //   resourceType: "Practitioner",
