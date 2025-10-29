@@ -132,12 +132,31 @@ function normalizeAbhaAddresses(patientObj) {
   out.sort((a, b) => (b.primary - a.primary) || a.value.localeCompare(b.value));
   return out;
 }
+function resolveGlobalPractitioner() {
+  const gp =
+    (typeof window !== "undefined" &&
+      (window.GlobalPractioner || window.GlobalPractitionerFHIR)) ||
+    null;
 
-// --- Global Practitioner (available everywhere) ---
-// const gp = typeof window !== "undefined" ? window.GlobalPractioner : null;
-// const practitionerId = gp?.id || uuidv4();
-// const practitionerName = (Array.isArray(gp?.name) && gp.name[0]?.text) || "Dr. ABC";
-// const practitionerLicense = (Array.isArray(gp?.identifier) && gp.identifier[0]?.value) || "LIC-0000";
+  const fallback = {
+    id: `TEMP-${uuidv4()}`,
+    name: "Dr. ABC",
+    license: "LIC-0000",
+  };
+
+  if (!gp) return fallback;
+
+  const id = gp.id || fallback.id;
+  const name =
+    (Array.isArray(gp.name) && gp.name[0]?.text) ||
+    (typeof gp.name === "string" ? gp.name : fallback.name);
+  const license =
+    (Array.isArray(gp.identifier) && gp.identifier[0]?.value) ||
+    gp.license ||
+    fallback.license;
+
+  return { id, name, license };
+}
 
 
 /* ------------------------------- APP ------------------------------------- */
@@ -145,7 +164,7 @@ function normalizeAbhaAddresses(patientObj) {
 export default function App() {
   /* Patients (from /patients.json) */
   const [patients, setPatients] = useState([]);
-  const [practitioner, setPractitioner] = useState(null);
+  const [practitioner, setPractitioner] = useState(resolveGlobalPractitioner());
   const [selectedPatientIdx, setSelectedPatientIdx] = useState(-1);
   const selectedPatient = useMemo(() => (selectedPatientIdx >= 0 ? patients[selectedPatientIdx] : null), [patients, selectedPatientIdx]);
 
@@ -210,6 +229,14 @@ export default function App() {
   // }, [selectedPatientIdx]); // eslint-disable-line
 
   useEffect(() => {
+    const resolved = resolveGlobalPractitioner();
+    if (resolved.name !== practitioner.name || resolved.license !== practitioner.license || resolved.id !== practitioner.id) {
+      setPractitioner(resolved);
+    }
+  }, []);
+
+
+  useEffect(() => {
     if (!selectedPatient) {
       setAbhaOptions([]);
       setSelectedAbha("");
@@ -221,31 +248,6 @@ export default function App() {
   }, [selectedPatient]); // FIX: depend on selectedPatient, not selectedPatientIdx
 
 
-  // fetching practitioner data 
-  useEffect(() => {
-    if (window.GlobalPractioner) {
-      setPractitioner(window.GlobalPractioner);
-    } else {
-      // fallback if not defined
-      setPractitioner({
-        id: uuidv4(),
-        resourceType: "Practitioner",
-        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
-        identifier: [
-          {
-            type: {
-              coding: [
-                { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }
-              ]
-            },
-            system: "https://doctor.ndhm.gov.in",
-            value: "LIC-0000"
-          }
-        ],
-        name: [{ text: "Dr. ABC" }]
-      });
-    }
-  }, []);
   /* Load patients on mount: API first, fallback to local */
   useEffect(() => {
     (async () => {
@@ -362,31 +364,28 @@ export default function App() {
       };
     }
 
-    // Build Practitioner resource (global)
-    // function buildPractitionerResource(practitionerReferenceId) {
-    //   const globalPractitioner = window.GlobalPractioner;
-
-    //   const fallback = {
-    //     id: "dummy-practitioner-id",
-    //     meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
-    //     text: { status: "generated", div: "<div xmlns='http://www.w3.org/1999/xhtml'><p><b>Generated Narrative: Doctor Info : Dr. ABC</b></p></div>" },
-    //     identifier: [
-    //       { type: { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MD", display: "Medical License number" }] }, system: "https://doctor.ndhm.gov.in", value: "LC-0000-0000" }
-    //     ],
-    //     name: [{ text: "Dr. ABC" }]
-    //   };
-
-    //   const src = globalPractitioner || fallback;
-
-    //   return {
-    //     resourceType: "Practitioner",
-    //     id: practitionerReferenceId || uuidv4(),
-    //     meta: src.meta,
-    //     text: src.text,
-    //     identifier: src.identifier,
-    //     name: src.name,
-    //   };
-    // }
+    const practitionerRes = {
+      resourceType: "Practitioner",
+      id: practitioner.id || uuidv4(),
+      language: "en-IN",
+      meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Practitioner"] },
+      identifier: [
+        {
+          type: {
+            coding: [
+              {
+                system: "http://terminology.hl7.org/CodeSystem/v2-0203",
+                code: "MD",
+                display: "Medical License number"
+              }
+            ]
+          },
+          system: "https://doctor.ndhm.gov.in",
+          value: practitioner.license || "LIC-0000"
+        }
+      ],
+      name: [{ text: practitioner.name || "Dr. ABC" }]
+    };
 
     // Optional Organization resources
     function buildOrganizationResource(orgId, orgName) {
@@ -396,7 +395,12 @@ export default function App() {
         id: orgId,
         language: "en-IN",
         meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Organization"] },
-        // text: buildNarrative("Organization", `<p>${orgName}</p>`),
+        identifier: [
+          {
+            system: "https://facility.ndhm.gov.in",
+            value: "HIP123456"   // 🔴 Replace with your real HIP facility code
+          }
+        ],
         name: orgName,
       };
     }
@@ -489,7 +493,8 @@ export default function App() {
         subject: { reference: `urn:uuid:${patientId}` },
         ...(encounterReference ? { encounter: { reference: encounterReference } } : {}),
         date: authoredOn,
-        author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerRes.name?.[0]?.text }],
+        // author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitionerRes.name?.[0]?.text }],
+        author: [{ reference: `urn:uuid:${practitionerRes.id}`, display: practitioner.name }],
         attester: [{ mode: "official", party: { reference: `urn:uuid:${practitionerRes.id}` } }],
 
         title: title,
@@ -529,10 +534,6 @@ export default function App() {
     //   ],
     //   name: gp?.name || [{ text: practitionerName }]
     // };
-    const practitionerRes = practitioner && {
-      ...practitioner,
-      id: practitioner.id || uuidv4(), // ensure UUID
-    };
 
     const encounterReference = encounterRefText ? `urn:uuid:${encounterId}` : undefined;
     const encounterRes = encounterId
@@ -660,12 +661,12 @@ export default function App() {
           <div className="row g-2">
             <div className="col-md-6">
               <label className="form-label">Name</label>
-              <input className="form-control" readOnly value={practitioner?.name?.[0]?.text || ""} />
+              <input className="form-control" readOnly value={practitioner?.name || ""} />
 
             </div>
             <div className="col-md-6">
               <label className="form-label">License</label>
-              <input className="form-control" readOnly value={practitioner?.identifier?.[0]?.value || ""} />
+              <input className="form-control" readOnly value={practitioner?.license || ""} />
 
             </div>
           </div>
