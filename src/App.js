@@ -209,6 +209,18 @@ export default function App() {
   //   setSelectedAbha(norm.length ? norm[0].value : "");
   // }, [selectedPatientIdx]); // eslint-disable-line
 
+  useEffect(() => {
+    if (!selectedPatient) {
+      setAbhaOptions([]);
+      setSelectedAbha("");
+      return;
+    }
+    const norm = normalizeAbhaAddresses(selectedPatient);
+    setAbhaOptions(norm);
+    setSelectedAbha(norm.length ? norm[0].value : "");
+  }, [selectedPatient]); // FIX: depend on selectedPatient, not selectedPatientIdx
+
+
   // fetching practitioner data 
   useEffect(() => {
     if (window.GlobalPractioner) {
