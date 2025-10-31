@@ -104,7 +104,7 @@ function fileToBase64NoPrefix(file) {
 const PLACEHOLDER_PDF_B64 = "JVBERi0xLjQKJeLjz9MK";
 
 /* Fixed LOINC coding for Composition.type (replaces SNOMED 419891008 to avoid validator error) */
-const COMPOSITION_DOC_TYPE = { system: "http://loinc.org", code: "34133-9", display: "Summary of episode note" };
+const COMPOSITION_DOC_TYPE = { system: "http://snomed.info/sct", code: "419891008", display: "Record artifact" };
 
 /* Normalize ABHA addresses (strings or objects with address/isPrimary) */
 function normalizeAbhaAddresses(patientObj) {
@@ -353,9 +353,16 @@ export default function App() {
         resourceType: "Patient",
         id: patientId,
         language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Patient"] },
-        // text: buildNarrative("Patient", `<p>${p.name || ""}</p><p>${p.gender || ""} ${p.dob || ""}</p>`),
-        identifier: identifiers,
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"] },
+        text: buildNarrative("Patient", `<p>${p.name || ""}</p><p>${(p.gender || "").toLowerCase()} ${ddmmyyyyToISO(p.dob) || ""}</p>`),
+        identifier: identifiers.map(id => ({
+          ...id,
+          type: id.system.includes("ndhm.gov.in")
+            ? { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "PI", display: "Patient internal identifier" }], text: "ABHA Number" }
+            : id.system.includes("address")
+              ? { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "PN", display: "Person number" }], text: "ABHA Address" }
+              : { coding: [{ system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MR", display: "Medical record number" }], text: "MRN" }
+        })),
         name: p.name ? [{ text: p.name }] : undefined,
         gender: p.gender ? String(p.gender).toLowerCase() : undefined,
         birthDate: ddmmyyyyToISO(p.dob) || undefined,
@@ -384,7 +391,8 @@ export default function App() {
           value: practitioner.license || "LIC-0000"
         }
       ],
-      name: [{ text: practitioner.name || "Dr. ABC" }]
+      name: [{ text: practitioner.name || "Dr. ABC" }],
+      text: buildNarrative("Practitioner", `<p>${practitioner.name}</p><p>License: ${practitioner.license}</p>`),
     };
 
     // Optional Organization resources
@@ -394,7 +402,7 @@ export default function App() {
         resourceType: "Organization",
         id: orgId,
         language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Organization"] },
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"] },
         identifier: [
           {
             system: "https://facility.ndhm.gov.in",
@@ -413,8 +421,8 @@ export default function App() {
         resourceType: "Encounter",
         id: encounterId,
         language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Encounter"] },
-        // text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"] },
+        text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
         status: "finished",
         class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "AMB", display: "ambulatory" },
         subject: { reference: `urn:uuid:${patientId}` },
@@ -454,13 +462,20 @@ export default function App() {
           resourceType: "DocumentReference",
           id: docId,
           language: "en-IN",
-          meta: { profile: ["http://hl7.org/fhir/StructureDefinition/DocumentReference"] },
-          // text: buildNarrative("DocumentReference", `<p>${title}</p>`),
+          meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/DocumentReference"] },
           status: "current",
-          type: { coding: [{ system: "http://loinc.org", code: "34108-1", display: "Outpatient Note" }], text: "Outpatient Note" },
+          text: buildNarrative("DocumentReference", `<p>${title}</p>`),
+          type: { coding: [COMPOSITION_DOC_TYPE], text: COMPOSITION_DOC_TYPE.display },
           subject: { reference: `urn:uuid:${patientId}` },
           date: authoredOn,
-          content: [{ attachment: { contentType, title, url: `urn:uuid:${binId}` } }],
+          content: [{
+            attachment: {
+              contentType,
+              title,
+              data: dataB64,              // ✅ REQUIRED by NDHM profile
+              url: `urn:uuid:${binId}`    // optional, keep if you also include Binary
+            }
+          }],
         };
 
         binaries.push(binary);
@@ -472,7 +487,7 @@ export default function App() {
 
     // Build Composition resource referencing DocumentReference entries
     function buildCompositionResource(docRefs) {
-      const sectionEntries = docRefs.map(dr => ({ reference: `urn:uuid:${dr.id}`, type: "DocumentReference" }));
+      const sectionEntries = docRefs.map(dr => ({ reference: `urn:uuid:${dr.id}` }));
       const attesterArr = [];
 
       if (attesterPartyType === "Practitioner") {
@@ -485,9 +500,8 @@ export default function App() {
         resourceType: "Composition",
         id: compId,
         language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Composition"] },
-        // text: buildNarrative("Composition", `<p>${title}</p><p>Author: ${practitionerName}</p>`),
-
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/HealthDocumentRecord"] },
+        text: buildNarrative("Prescription Record", `<p>Subject: ${selectedPatient?.name || ""}</p><p>Author: ${practitioner.name}</p>`),
         status: status,
         type: { coding: [COMPOSITION_DOC_TYPE], text: COMPOSITION_DOC_TYPE.display },
         subject: { reference: `urn:uuid:${patientId}` },
@@ -541,7 +555,7 @@ export default function App() {
         resourceType: "Encounter",
         id: encounterId,
         language: "en-IN",
-        meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Encounter"] },
+        meta: { profile: ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/Encounter"] },
         // text: buildNarrative("Encounter", `<p>${encounterRefText}</p>`),
         status: "finished",
         class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "AMB", display: "ambulatory" },
